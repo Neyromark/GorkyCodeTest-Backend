@@ -1,0 +1,2 @@
+gigachat==0.2.3
+python-dotenv==1.2.4
