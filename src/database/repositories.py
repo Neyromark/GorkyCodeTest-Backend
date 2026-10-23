@@ -51,7 +51,7 @@ class TaskRepository:
         date_notify: datetime | None = None,
         title_vector: Sequence[float] | None = None,
         time: TimeValue | None = None,
-        is_notified: bool | None = None,
+        is_notified: bool | None = False,
     ) -> Task:
         task = Task(
             user_id=user_id,
