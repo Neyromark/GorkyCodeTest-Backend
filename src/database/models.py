@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date as DateValue
+from datetime import datetime, time as TimeValue
 from enum import Enum
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
+    Date,
     DateTime,
     ForeignKey,
     Index,
+    Time,
     Text,
     text,
 )
@@ -98,11 +101,13 @@ class Task(Base):
         Vector(EMBEDDING_DIMENSION),
         nullable=True,
     )
-    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    date: Mapped[DateValue] = mapped_column(Date, nullable=False)
     date_notify: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    time: Mapped[TimeValue | None] = mapped_column(Time, nullable=True)
+    is_notified: Mapped[bool | None] = mapped_column(nullable=True)
 
     user: Mapped[User] = relationship(back_populates="tasks")

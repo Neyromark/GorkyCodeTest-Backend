@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date as DateValue
+from datetime import datetime, time as TimeValue
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -45,10 +46,12 @@ class TaskRepository:
         user_id: int,
         event_type: EventType,
         title: str,
-        date: datetime,
+        date: DateValue,
         raw_text: str,
         date_notify: datetime | None = None,
         title_vector: Sequence[float] | None = None,
+        time: TimeValue | None = None,
+        is_notified: bool | None = None,
     ) -> Task:
         task = Task(
             user_id=user_id,
@@ -58,6 +61,8 @@ class TaskRepository:
             date_notify=date_notify,
             raw_text=raw_text,
             title_vector=list(title_vector) if title_vector is not None else None,
+            time=time,
+            is_notified=is_notified,
         )
         self._session.add(task)
         self._session.flush()
@@ -67,8 +72,8 @@ class TaskRepository:
         self,
         user_id: int,
         *,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
+        date_from: DateValue | None = None,
+        date_to: DateValue | None = None,
         event_type: EventType | None = None,
         limit: int = 100,
     ) -> list[Task]:
