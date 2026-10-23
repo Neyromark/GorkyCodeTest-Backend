@@ -117,6 +117,5 @@ class Task(Base):
         server_default=text("false"),
     )
     time: Mapped[TimeValue | None] = mapped_column(Time, nullable=True)
-    is_notified: Mapped[bool | None] = mapped_column(nullable=True)
 
     user: Mapped[User] = relationship(back_populates="tasks")
