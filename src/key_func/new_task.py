@@ -1,9 +1,7 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from src.database.models import EventType
 from src.database.repositories import UserRepository, TaskRepository
-
+from src.vectorization import vector
 
 def create_task(information: dict,user_id: int,session: Session, date_notify):
     """Создаёт задачу или встречу и сохраняет её в БД."""
@@ -17,7 +15,7 @@ def create_task(information: dict,user_id: int,session: Session, date_notify):
     event_type = EventType(information["type"])
     date = information["date"]
     time = information["time"]
-
+    vector_raw_text = vector(raw_text)
 
     task_repository = TaskRepository(session)
 
@@ -28,9 +26,9 @@ def create_task(information: dict,user_id: int,session: Session, date_notify):
         date=date,
         raw_text=raw_text,
         date_notify=date_notify,
-        title_vector=None,#заглушка пока что
+        title_vector=vector_raw_text,
         time=time,
-        is_notified=False#заглушка пока что
+        is_notified=False
     )
 
     return task
