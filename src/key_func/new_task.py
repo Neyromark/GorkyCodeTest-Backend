@@ -15,7 +15,7 @@ def create_task(information: dict,user_id: int,session: Session, date_notify):
     event_type = EventType(information["type"])
     date = information["date"]
     time = information["time"]
-    vector_raw_text = vector(raw_text)
+    vector_raw_text = list(vector(raw_text))
 
     task_repository = TaskRepository(session)
 
