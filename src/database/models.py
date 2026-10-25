@@ -6,6 +6,7 @@ from datetime import date as DateValue
 from datetime import date as DateValue
 from datetime import datetime, time as TimeValue, time as TimeValue
 from enum import Enum
+from uuid import UUID
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
@@ -15,8 +16,11 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    PrimaryKeyConstraint,
     Time,
     Text,
+    Uuid,
+    func,
     text,
 )
 from sqlalchemy import (
@@ -26,7 +30,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
 
-EMBEDDING_DIMENSION = 1536
+EMBEDDING_DIMENSION = 768
 
 
 class EventType(str, Enum):
@@ -119,3 +123,19 @@ class Task(Base):
     time: Mapped[TimeValue | None] = mapped_column(Time, nullable=True)
 
     user: Mapped[User] = relationship(back_populates="tasks")
+
+
+class DoneTask(Base):
+    """Отметка о том, что запрос с данным query_id уже обработан."""
+
+    __tablename__ = "done_tasks"
+    __table_args__ = (PrimaryKeyConstraint("query_id", name="done_tasks_pk"),)
+    # created_at заполняет сервер (now()); забираем его через RETURNING при INSERT.
+    __mapper_args__ = {"eager_defaults": True}
+
+    query_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        nullable=False,
+        server_default=func.now(),
+    )

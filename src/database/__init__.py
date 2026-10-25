@@ -7,12 +7,14 @@ from .connection import (
     make_session_factory,
     session_scope,
 )
-from .models import EMBEDDING_DIMENSION, EventType, Task, User
-from .repositories import TaskRepository, UserRepository
+from .models import EMBEDDING_DIMENSION, DoneTask, EventType, Task, User
+from .repositories import DoneTaskRepository, TaskRepository, UserRepository
 
 __all__ = [
     "EMBEDDING_DIMENSION",
     "Base",
+    "DoneTask",
+    "DoneTaskRepository",
     "EventType",
     "Task",
     "TaskRepository",
