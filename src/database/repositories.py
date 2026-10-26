@@ -86,7 +86,7 @@ class TaskRepository:
         if date_from is not None:
             statement = statement.where(Task.date >= date_from)
         if date_to is not None:
-            statement = statement.where(Task.date < date_to)
+            statement = statement.where(Task.date <= date_to)
         if event_type is not None:
             statement = statement.where(Task.type == event_type)
 
