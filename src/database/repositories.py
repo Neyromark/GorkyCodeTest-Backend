@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date as DateValue
 from datetime import datetime, time as TimeValue
+from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
-from .models import EventType, Task, User
+from .models import DoneTask, EventType, Task, User
 
 
 class UserRepository:
@@ -119,3 +121,35 @@ class TaskRepository:
             .limit(limit)
         )
         return list(self._session.scalars(statement).all())
+
+
+class DoneTaskRepository:
+    """Учет уже обработанных запросов по их query_id."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get(self, query_id: UUID) -> DoneTask | None:
+        return self._session.get(DoneTask, query_id)
+
+    def is_done(self, query_id: UUID) -> bool:
+        statement = select(DoneTask.query_id).where(DoneTask.query_id == query_id)
+        return self._session.scalar(statement) is not None
+
+    def mark_done(self, query_id: UUID) -> bool:
+        """Отметить запрос обработанным.
+
+        Возвращает ``True``, если отметка добавлена, и ``False``, если запрос
+        уже был отмечен ранее. Использует ``ON CONFLICT DO NOTHING``, поэтому
+        безопасен при конкурентных вызовах с одним и тем же query_id.
+        """
+
+        dialect = self._session.get_bind().dialect.name
+        insert = sqlite.insert if dialect == "sqlite" else postgresql.insert
+        statement = (
+            insert(DoneTask)
+            .values(query_id=query_id)
+            .on_conflict_do_nothing(index_elements=[DoneTask.query_id])
+            .returning(DoneTask.query_id)
+        )
+        return self._session.execute(statement).scalar() is not None
