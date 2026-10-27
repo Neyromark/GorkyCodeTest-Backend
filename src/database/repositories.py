@@ -7,7 +7,7 @@ from datetime import date as DateValue
 from datetime import datetime, time as TimeValue
 from uuid import UUID
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import or_, select, tuple_
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
@@ -85,27 +85,47 @@ class TaskRepository:
             raise ValueError("limit должен быть положительным числом")
 
         statement = select(Task).where(Task.user_id == user_id)
+        has_dates = date_from is not None or date_to is not None
+        has_times = time_start is not None or time_end is not None
 
-        # Нижняя граница: (date, time) >= (date_from или date.min, time_start или time.min)
-        if date_from is not None or time_start is not None:
+        if not has_times:
+            # Только даты: события без времени попадают в выборку
+            if date_from is not None:
+                statement = statement.where(Task.date >= date_from)
+            if date_to is not None:
+                statement = statement.where(Task.date <= date_to)
+        elif not has_dates:
+            # Только время: окно по времени внутри каждого дня, события без времени исключаются
+            lower_time = time_start if time_start is not None else TimeValue.min
+            upper_time = time_end if time_end is not None else TimeValue.max
+            if lower_time <= upper_time:
+                statement = statement.where(Task.time.between(lower_time, upper_time))
+            else:
+                # Окно через полночь, например 22:00–02:00
+                statement = statement.where(
+                    or_(Task.time >= lower_time, Task.time <= upper_time)
+                )
+        else:
+            # Даты и время: непрерывный диапазон (date, time), события без времени исключаются
             lower_date = date_from if date_from is not None else DateValue.min
             lower_time = time_start if time_start is not None else TimeValue.min
-            statement = statement.where(
-                tuple_(Task.date, Task.time) >= (lower_date, lower_time)
-            )
-
-        # Верхняя граница: (date, time) <= (date_to или date.max, time_end или time.max)
-        if date_to is not None or time_end is not None:
             upper_date = date_to if date_to is not None else DateValue.max
             upper_time = time_end if time_end is not None else TimeValue.max
             statement = statement.where(
-                tuple_(Task.date, Task.time) <= (upper_date, upper_time)
+                Task.time.is_not(None),
+                tuple_(Task.date, Task.time) >= (lower_date, lower_time),
+                tuple_(Task.date, Task.time) <= (upper_date, upper_time),
             )
 
         if event_type is not None:
             statement = statement.where(Task.type == event_type)
 
-        statement = statement.limit(limit)
+        # Последние ``limit`` событий, от новых к старым
+        statement = statement.order_by(
+            Task.date.desc(),
+            Task.time.desc().nulls_last(),
+            Task.task_id.desc(),
+        ).limit(limit)
 
         return list(self._session.execute(statement).scalars().all())
 
