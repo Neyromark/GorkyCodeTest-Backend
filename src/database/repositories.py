@@ -133,24 +133,23 @@ class TaskRepository:
         self,
         user_id: int,
         embedding: Sequence[float],
+        task_ids: Sequence[int],
         *,
         limit: int = 5,
     ) -> list[Task]:
         """Вернуть ближайшие заголовки пользователя по cosine distance.
-
-        Размер ``embedding`` должен совпадать с EMBEDDING_DIMENSION (1536).
-        Фильтр по пользователю применяется до ранжирования, чтобы не смешивать
-        результаты разных пользователей.
         """
 
         if limit < 1:
             raise ValueError("limit должен быть положительным числом")
-
+        if not task_ids:
+            return []
         distance = Task.title_vector.cosine_distance(list(embedding))
         statement = (
             select(Task)
             .where(
                 Task.user_id == user_id,
+                Task.task_id.in_(task_ids),
                 Task.title_vector.is_not(None),
             )
             .order_by(distance)
