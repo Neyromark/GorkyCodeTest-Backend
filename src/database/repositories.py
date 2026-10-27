@@ -7,7 +7,7 @@ from datetime import date as DateValue
 from datetime import datetime, time as TimeValue
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
@@ -76,6 +76,8 @@ class TaskRepository:
         *,
         date_from: DateValue | None = None,
         date_to: DateValue | None = None,
+        time_start: TimeValue | None = None,
+        time_end: TimeValue | None = None,
         event_type: EventType | None = None,
         limit: int = 100,
     ) -> list[Task]:
@@ -83,15 +85,29 @@ class TaskRepository:
             raise ValueError("limit должен быть положительным числом")
 
         statement = select(Task).where(Task.user_id == user_id)
-        if date_from is not None:
-            statement = statement.where(Task.date >= date_from)
-        if date_to is not None:
-            statement = statement.where(Task.date <= date_to)
+
+        # Нижняя граница: (date, time) >= (date_from или date.min, time_start или time.min)
+        if date_from is not None or time_start is not None:
+            lower_date = date_from if date_from is not None else DateValue.min
+            lower_time = time_start if time_start is not None else TimeValue.min
+            statement = statement.where(
+                tuple_(Task.date, Task.time) >= (lower_date, lower_time)
+            )
+
+        # Верхняя граница: (date, time) <= (date_to или date.max, time_end или time.max)
+        if date_to is not None or time_end is not None:
+            upper_date = date_to if date_to is not None else DateValue.max
+            upper_time = time_end if time_end is not None else TimeValue.max
+            statement = statement.where(
+                tuple_(Task.date, Task.time) <= (upper_date, upper_time)
+            )
+
         if event_type is not None:
             statement = statement.where(Task.type == event_type)
 
-        statement = statement.order_by(Task.date.asc()).limit(limit)
-        return list(self._session.scalars(statement).all())
+        statement = statement.limit(limit)
+
+        return list(self._session.execute(statement).scalars().all())
 
     def search_similar_titles(
         self,
