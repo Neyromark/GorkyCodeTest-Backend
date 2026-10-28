@@ -2,7 +2,7 @@ import datetime
 
 
 def get_prompt(user_text: str) -> str:
-    current_date = datetime.datetime.now().strftime("%Y-%m-%d (%A)")
+    current_date = datetime.datetime.now().strftime('%Y-%m-%d (%A) %H:%M')
 
     system_prompt = f"""
 Ты — AI-мозг умного календаря-ассистента.
