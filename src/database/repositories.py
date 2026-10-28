@@ -7,7 +7,7 @@ from datetime import date as DateValue
 from datetime import datetime, time as TimeValue
 from uuid import UUID
 
-from sqlalchemy import or_, select, tuple_
+from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
@@ -144,6 +144,10 @@ class TaskRepository:
             raise ValueError("limit должен быть положительным числом")
         if not task_ids:
             return []
+        # Нулевой вектор (пустой запрос): cosine distance не определена (NaN)
+        if not any(embedding):
+            return []
+
         distance = Task.title_vector.cosine_distance(list(embedding))
         statement = (
             select(Task)
@@ -151,8 +155,13 @@ class TaskRepository:
                 Task.user_id == user_id,
                 Task.task_id.in_(task_ids),
                 Task.title_vector.is_not(None),
+                # Сохраненные нулевые векторы дают NaN, исключаем их
+                func.vector_norm(Task.title_vector) > 0,
             )
-            .order_by(distance)
+            # ``+ 0`` не дает планировщику выбрать HNSW-индекс: он фильтрует уже после
+            # поиска ближайших по всей таблице и может вернуть меньше ``limit`` строк.
+            # Кандидатов не больше ``task_ids``, поэтому точная сортировка дешевая.
+            .order_by(distance + 0)
             .limit(limit)
         )
         return list(self._session.scalars(statement).all())
