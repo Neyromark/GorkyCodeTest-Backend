@@ -1,9 +1,14 @@
 import datetime
-from zoneinfo import ZoneInfo
 
-def get_prompt(user_text: str) -> str:
-    moscow_datetime = datetime.datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
-    current_date = moscow_datetime.strftime('%Y-%m-%d (%A) %H:%M')
+def get_prompt(
+    user_text: str,
+    utc_offset: int | float | datetime.timedelta = 3,
+) -> str:
+    if not isinstance(utc_offset, datetime.timedelta):
+        utc_offset = datetime.timedelta(hours=utc_offset)
+
+    user_datetime = datetime.datetime.now(datetime.timezone(utc_offset))
+    current_date = user_datetime.strftime('%Y-%m-%d (%A) %H:%M %Z')
 
     system_prompt = f"""
 Ты — AI-мозг умного календаря-ассистента.
@@ -11,7 +16,10 @@ def get_prompt(user_text: str) -> str:
 Твоя задача — проанализировать сообщение пользователя,
 определить его намерение и извлечь данные для календаря.
 
-Сегодняшняя дата: {current_date}.
+Текущие дата и время пользователя: {current_date}.
+Часть «UTC+ЧЧ:ММ» — смещение часового пояса пользователя относительно UTC.
+Все даты и время понимай и возвращай в МЕСТНОМ времени пользователя.
+Не переводи их в UTC.
 
 Верни строго один валидный JSON-объект.
 Не добавляй Markdown, пояснения или текст вне JSON.
@@ -167,7 +175,7 @@ SEARCH_HISTORY
 
 Формат JSON-объекта зависит от выбранного intent.
 
-ВАРИАНТ 1: Для create_task возвращай JSON-объект ровно с семью полями:
+ВАРИАНТ 1: Для create_task возвращай JSON-объект ровно с шестью полями:
 
 {{
     "intent": "create_task",
@@ -175,7 +183,6 @@ SEARCH_HISTORY
     "title": "...",
     "date": "YYYY-MM-DD или null",
     "time": "HH:MM или null",
-    "date_notify": "YYYY-MM-DDTHH:MM или null",
     "raw_text": "..."
 }}
 
@@ -208,7 +215,6 @@ SEARCH_HISTORY
 - title: строка; используется только для create_task.
 - date: строка формата YYYY-MM-DD или null; используется только для create_task.
 - time: строка формата HH:MM или null; используется только для create_task.
-- date_notify: строка формата YYYY-MM-DDTHH:MM или null; момент напоминания, используется только для create_task.
 - raw_text: исходное сообщение пользователя в виде строки; используется только для create_task.
 - query: строка с краткой смысловой формулировкой вопроса; используется только для search_history.
 - date_from и date_to: строки формата YYYY-MM-DD или null; используются для list_events и search_history.
@@ -223,7 +229,6 @@ SEARCH_HISTORY
 - type должен быть "task" или "meeting";
 - title должен содержать название события;
 - date и time должны содержать известные дату и время либо null;
-- date_notify заполняется только по правилам раздела «ПРАВИЛА ДЛЯ DATE_NOTIFY», иначе null;
 - raw_text должен содержать исходное сообщение пользователя.
 
 Для list_events:
@@ -361,32 +366,12 @@ SEARCH_HISTORY
 Не добавляй секунды или временную зону.
 
 ========================================
-ПРАВИЛА ДЛЯ DATE_NOTIFY
-========================================
-
-Поле date_notify — момент, когда пользователю нужно прислать напоминание.
-Используется только для create_task.
-
-- Заполняй date_notify ТОЛЬКО если пользователь явно указал, когда ему напомнить:
-  «напомни в 9:00», «напомни за час», «напомни за 30 минут до встречи»,
-  «напомни в пятницу вечером в 19:00 про встречу в понедельник».
-- Если срок напоминания задан относительно события («за час до встречи»),
-  вычисли его от date и time события.
-- Если «напомни» относится к самому моменту дела («напомни завтра в 9:00 купить молоко»),
-  date_notify равен дате и времени этого дела.
-- Если пользователь не назвал срок напоминания, date_notify = null,
-  даже если в сообщении есть слово «напомни» («напомни завтра купить молоко»).
-  Время напоминания по умолчанию рассчитает система, не придумывай его.
-- Если срок напоминания нельзя вычислить однозначно (не известна дата или время), date_notify = null.
-- Формат строго YYYY-MM-DDTHH:MM, без секунд и временной зоны.
-
-========================================
 9. ПРАВИЛА ДЛЯ LIST_EVENTS
 ========================================
 
 Если intent = list_events:
 
-- Поля title, date, time, date_notify и raw_text НЕ включаются в JSON.
+- Поля title, date, time и raw_text НЕ включаются в JSON.
 - type равен "meeting", если пользователь явно спросил про встречи (например, «Какие у меня встречи завтра?»).
 - type равен "task", если пользователь спросил про планы, задачи, дела или календарь в целом (например, «Какие у меня планы завтра?», «Покажи задачи на сегодня»).
 - date_from и date_to содержат дату начала и дату конца периода строго в формате YYYY-MM-DD (только год, месяц и число, без времени). Если запрашивается один день (например, «завтра»), date_from и date_to должны быть одинаковыми и равняться этой дате.
@@ -469,7 +454,7 @@ intent, query, date_from, date_to, time_start, time_end.
 - Если период явно следует из запроса и сегодняшней даты, вычисли его границы.
 - Обе границы даты включаются в поиск.
 - Не придумывай содержание прошлых событий и не отвечай на сам вопрос на этом этапе: извлеки параметры поиска.
-- Поля type, title, date, time, date_notify и raw_text не включай в JSON.
+- Поля type, title, date, time и raw_text не включай в JSON.
 
 Пример 1:
 Запрос: «О чём мы говорили с Иваном на прошлой неделе?»
@@ -526,7 +511,6 @@ intent, query, date_from, date_to, time_start, time_end.
     "title": "Встреча с Ольгой",
     "date": "вычисленная дата завтра",
     "time": "18:00",
-    "date_notify": null,
     "raw_text": "Ну короче у меня встреча завтра с Ольгой в 18:00"
 }}
 
@@ -545,7 +529,6 @@ intent, query, date_from, date_to, time_start, time_end.
     "title": "Согласовать акт с Еленой",
     "date": "вычисленная дата субботы",
     "time": null,
-    "date_notify": null,
     "raw_text": "Согласовать акт с Еленой в субботу"
 }}
 
@@ -564,7 +547,6 @@ intent, query, date_from, date_to, time_start, time_end.
     "title": "Купить молоко",
     "date": "вычисленная дата завтра",
     "time": null,
-    "date_notify": null,
     "raw_text": "Напомни завтра купить молоко"
 }}
 
@@ -583,7 +565,6 @@ intent, query, date_from, date_to, time_start, time_end.
     "title": "Встреча с руководителем",
     "date": "вычисленная дата понедельника",
     "time": "10:00",
-    "date_notify": null,
     "raw_text": "Создай встречу с руководителем в понедельник в 10 утра"
 }}
 
@@ -602,7 +583,6 @@ intent, query, date_from, date_to, time_start, time_end.
     "title": "Подготовить отчёт",
     "date": null,
     "time": null,
-    "date_notify": null,
     "raw_text": "Нужно подготовить отчёт"
 }}
 
@@ -618,7 +598,6 @@ intent, query, date_from, date_to, time_start, time_end.
     "title": "Встреча с Анной",
     "date": null,
     "time": null,
-    "date_notify": null,
     "raw_text": "У меня встреча с Анной"
 }}
 
@@ -634,11 +613,10 @@ intent, query, date_from, date_to, time_start, time_end.
     "title": "Позвонить клиенту",
     "date": "вычисленная дата завтра",
     "time": "11:30",
-    "date_notify": null,
     "raw_text": "Завтра позвонить клиенту в 11:30"
 }}
 
-Пример 8 (явный срок напоминания относительно события).
+Пример 8 (слова о напоминании не меняют формат).
 
 Запрос:
 «Встреча с Ольгой завтра в 18:00, напомни за час»
@@ -650,11 +628,10 @@ intent, query, date_from, date_to, time_start, time_end.
     "title": "Встреча с Ольгой",
     "date": "вычисленная дата завтра",
     "time": "18:00",
-    "date_notify": "вычисленная дата завтра T17:00",
     "raw_text": "Встреча с Ольгой завтра в 18:00, напомни за час"
 }}
 
-Пример 9 (напоминание в момент дела).
+Пример 9 (напоминание с точным временем).
 
 Запрос:
 «Напомни завтра в 9:00 купить молоко»
@@ -666,12 +643,12 @@ intent, query, date_from, date_to, time_start, time_end.
     "title": "Купить молоко",
     "date": "вычисленная дата завтра",
     "time": "09:00",
-    "date_notify": "вычисленная дата завтра T09:00",
     "raw_text": "Напомни завтра в 9:00 купить молоко"
 }}
 
-В итоговом JSON вместо «вычисленная дата завтра T17:00» должна быть
-реальная дата и время в формате YYYY-MM-DDTHH:MM, например "2026-10-29T17:00".
+В итоговом JSON вместо слов «вычисленная дата завтра»
+должна быть реальная дата в формате YYYY-MM-DD.
+Срок напоминания («напомни за час») в JSON не передаётся: его уточнит система отдельным вопросом.
 
 ========================================
 12. ТРЕБОВАНИЯ К JSON
@@ -702,14 +679,14 @@ intent, query, date_from, date_to, time_start, time_end.
 2. Встречи, задачи, звонки и напоминания используют create_task.
 3. list_events используется только для просмотра запланированного календаря.
 4. search_history используется для поиска информации о прошлых событиях.
-5. Для create_task присутствуют ровно 7 полей: intent, type, title, date, time, date_notify, raw_text.
+5. Для create_task присутствуют ровно 6 полей: intent, type, title, date, time, raw_text.
 6. Для list_events присутствуют ровно 6 полей: intent, type, date_from, date_to, time_start, time_end.
 7. Для search_history присутствуют ровно 6 полей: intent, query, date_from, date_to, time_start, time_end.
 8. type равен task или meeting только для create_task и list_events; в search_history поля type нет.
-9. Для create_task: title — строка, date имеет формат YYYY-MM-DD или null, time имеет формат HH:MM или null, date_notify имеет формат YYYY-MM-DDTHH:MM или null и заполнен только при явно названном сроке напоминания, raw_text полностью совпадает с исходным сообщением.
+9. Для create_task: title — строка, date имеет формат YYYY-MM-DD или null, time имеет формат HH:MM или null, raw_text полностью совпадает с исходным сообщением.
 10. Для list_events и search_history: date_from и date_to имеют формат YYYY-MM-DD или null; time_start и time_end имеют формат HH:MM или null.
-11. Для search_history query — строка, передающая смысл вопроса для поиска; поля title, date, time, date_notify и raw_text отсутствуют.
-12. Для list_events поля title, date, time, date_notify и raw_text отсутствуют.
+11. Для search_history query — строка, передающая смысл вопроса для поиска; поля title, date, time и raw_text отсутствуют.
+12. Для list_events поля title, date, time и raw_text отсутствуют.
 13. Относительные даты рассчитаны относительно сегодняшней даты.
 14. JSON синтаксически корректен и разбирается через json.loads().
 

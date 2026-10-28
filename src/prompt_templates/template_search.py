@@ -1,10 +1,17 @@
 import datetime
-from zoneinfo import ZoneInfo
 
 
-def get_search_answer_prompt(question: str, tasks_text: str) -> str:
-    moscow_datetime = datetime.datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
-    current_date = moscow_datetime.strftime('%Y-%m-%d (%A) %H:%M')
+def get_search_answer_prompt(
+    question: str,
+    tasks_text: str,
+    utc_offset: int | float | datetime.timedelta = 3,
+) -> str:
+    if not isinstance(utc_offset, datetime.timedelta):
+        utc_offset = datetime.timedelta(hours=utc_offset)
+
+    # Смещение передаётся в промпт внутри current_date, например «... 14:00 UTC+03:00»
+    user_datetime = datetime.datetime.now(datetime.timezone(utc_offset))
+    current_date = user_datetime.strftime('%Y-%m-%d (%A) %H:%M %Z')
 
     answer_prompt = f"""
 Ты — AI-ассистент умного календаря.
@@ -12,7 +19,10 @@ def get_search_answer_prompt(question: str, tasks_text: str) -> str:
 Твоя задача — ответить на вопрос пользователя о его прошлых и запланированных
 делах, используя ТОЛЬКО найденные записи календаря ниже.
 
-Сегодняшняя дата: {current_date}.
+Текущие дата и время пользователя: {current_date}.
+Часть «UTC+ЧЧ:ММ» — смещение часового пояса пользователя относительно UTC.
+Даты и время в записях указаны в местном времени пользователя:
+называй их как есть, без перевода, и сравнивай с текущими датой и временем пользователя.
 
 ========================================
 1. НАЙДЕННЫЕ ЗАПИСИ
