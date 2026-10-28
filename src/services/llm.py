@@ -2,18 +2,16 @@ from gigachat import GigaChat
 from gigachat.models import Chat, Messages, MessagesRole
 
 from src.config import credential
-from src.template import get_prompt
+from src.template import get_prompt, get_search_answer_prompt
 
 
-def get_answer_gigachat(user_text: str):
+def ask_gigachat(prompt: str, temperature: float = 0.1, max_tokens: int = 1000) -> str:
     client = GigaChat(
         base_url="https://api.giga.chat/v1",
         credentials=credential,
         scope="GIGACHAT_API_PERS",
         verify_ssl_certs=False,
     )
-
-    prompt = get_prompt(user_text)
 
     chat = Chat(
         model="GigaChat-3-Ultra",
@@ -23,10 +21,19 @@ def get_answer_gigachat(user_text: str):
                 content=prompt,
             )
         ],
-        temperature=0.1,
-        max_tokens=1000,
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
 
     response = client.chat(chat)
 
     return response.choices[0].message.content
+
+
+def get_answer_gigachat(user_text: str):
+    return ask_gigachat(get_prompt(user_text))
+
+
+def get_search_answer_gigachat(question: str, tasks_text: str) -> str:
+    """Сформулировать ответ на вопрос пользователя по найденным записям календаря."""
+    return ask_gigachat(get_search_answer_prompt(question, tasks_text), max_tokens=300)

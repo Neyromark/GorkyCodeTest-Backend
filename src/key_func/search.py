@@ -1,8 +1,12 @@
 from datetime import date as DateValue
 from datetime import time as TimeValue
 
+from src.database.models import EventType
 from src.database.repositories import UserRepository, TaskRepository
+from src.services.llm import get_search_answer_gigachat
 from src.vectorization import vector
+
+NOT_FOUND_ANSWER = "В календаре не нашлось подходящих записей."
 
 
 def search_tasks(information, user_id, session):
@@ -49,7 +53,7 @@ def search_tasks(information, user_id, session):
     )
 
     if not candidates:
-        return []
+        return NOT_FOUND_ANSWER
     query_embedding = vector(query).reshape(-1).tolist()
     candidate_ids = [task.task_id for task in candidates]
 
@@ -60,4 +64,21 @@ def search_tasks(information, user_id, session):
         limit=3,
     )
 
-    return tasks
+    if not tasks:
+        return NOT_FOUND_ANSWER
+
+    return get_search_answer_gigachat(query, format_tasks(tasks))
+
+
+def format_tasks(tasks):
+    """Записи для промпта: по одной строке, в порядке релевантности."""
+    lines = []
+    for number, task in enumerate(tasks, start=1):
+        kind = "встреча" if task.type == EventType.MEETING else "задача"
+        when = task.date.isoformat()
+        if task.time is not None:
+            when += f", {task.time.strftime('%H:%M')}"
+        else:
+            when += ", время не указано"
+        lines.append(f"{number}. {task.title} — {kind}, {when}")
+    return "\n".join(lines)
