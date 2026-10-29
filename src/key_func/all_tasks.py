@@ -1,8 +1,11 @@
 from datetime import date as DateValue
+from datetime import datetime
 from datetime import time as TimeValue
+from zoneinfo import ZoneInfo
 
 from src.database.repositories import UserRepository, TaskRepository
 from src.database.models import EventType
+from src.key_func.formats import format_all_tasks
 
 
 def show_all_tasks(information, user_id, session):
@@ -52,4 +55,6 @@ def show_all_tasks(information, user_id, session):
         time_end=time_end,
         event_type=event_type,
     )
-    return tasks
+    # «сегодня» / «завтра» считаются по часовому поясу пользователя
+    today = datetime.now(ZoneInfo(user.timezone)).date()
+    return format_all_tasks(information, tasks, today)
