@@ -1,70 +1,84 @@
+import json
 import logging
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import uvicorn
-from anyio.from_thread import run as run_in_event_loop
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from src.database.connection import make_engine, make_session_factory
 from src.api_module import ApiServer, InternalClient
-from src.config import notifications_url
+from src.choose import division
+from src.config import vk_bot_url
+from src.database.connection import make_engine, make_session_factory
+from src.database.repositories import UserRepository
+from src.services.llm import get_answer_gigachat
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Клиент сервиса Notifications: POST /notifications планирует напоминание
-notifications = InternalClient(base_url=notifications_url)
+# Клиент для отправки ответа пользователю через VK-бота (POST /api/v1/send-message)
+vk_bot = InternalClient(base_url=vk_bot_url)
 
-# Notifications отклоняет date_notify в прошлом, поэтому оставляем запас на доставку запроса
-MIN_LEAD = timedelta(seconds=10)
-# Ограничение длины title в схеме Notifications
-MAX_TITLE_LENGTH = 500
+# Намерения, которые сэмпл уже передаёт в division; остальные проверяем по кусочкам позже
+SUPPORTED_INTENTS = {"create_task"}
 
-
-def next_minute(now: datetime) -> datetime:
-    """Начало следующей минуты; если до неё меньше MIN_LEAD — начало минуты после неё."""
-    target = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
-    if target - now < MIN_LEAD:
-        target += timedelta(minutes=1)
-    return target
+PARSE_ERROR_ANSWER = "Не удалось понять сообщение. Попробуйте сформулировать иначе."
 
 
-def schedule_reminder(payload: dict[str, Any], session: Session | None) -> dict[str, Any]:
+def parse_intent(llm_answer: str) -> dict[str, Any]:
+    """JSON из ответа LLM; обрамление ```json ... ``` срезается, если модель его всё же добавила."""
+    text = llm_answer.strip()
+    if text.startswith("```"):
+        text = text.strip("`").removeprefix("json").strip()
+    return json.loads(text)
+
+
+def ensure_user(user_id: int, session: Session) -> None:
+    """Для тестов: заводит пользователя VK при первом сообщении, иначе create_task его не найдёт."""
+    users = UserRepository(session)
+    if users.get(user_id) is None:
+        users.create(user_id=user_id, username=f"id{user_id}")
+        logger.info(f"User {user_id} created")
+
+
+def handle_message(payload: dict[str, Any], session: Session | None) -> dict[str, Any]:
     """
-    Принимает сообщение пользователя от VK-бота (текст или расшифровку голосового)
-    и планирует в Notifications напоминание с тем же текстом на следующую минуту.
+    Принимает сообщение пользователя от VK-бота, определяет намерение через LLM
+    и для create_task передаёт его в division. Ответ отправляется пользователю через бота.
     """
     user_id = payload.get("user_id")
     message = payload.get("message")
     if not isinstance(user_id, int) or not message:
         raise HTTPException(status_code=422, detail="Нужны поля user_id (int) и message")
 
-    notify_at = next_minute(datetime.now(timezone.utc))
-    print(f'Пользователь {user_id} сказал "{message}", напомним в {notify_at:%H:%M} UTC')
+    llm_answer = get_answer_gigachat(message)
+    logger.info(f"LLM answer for user {user_id}: {llm_answer}")
 
-    # Обработчик выполняется в пуле потоков, а InternalClient асинхронный:
-    # отправляем запрос через event loop, в котором работает uvicorn
-    created = run_in_event_loop(
-        notifications.post,
-        "/notifications",
-        {
-            "type": "task",
-            "date_notify": notify_at.isoformat(),
-            "user_id": user_id,
-            "title": message[:MAX_TITLE_LENGTH],
-            "date": notify_at.isoformat(),
-        },
+    try:
+        information = parse_intent(llm_answer)
+        intent = information["intent"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        logger.exception("Не удалось разобрать ответ LLM")
+        intent, answer = None, PARSE_ERROR_ANSWER
+    else:
+        if intent in SUPPORTED_INTENTS:
+            ensure_user(user_id, session)
+            answer = division(information, user_id, session)
+        else:
+            answer = f"Намерение «{intent}» в сэмпле пока не обрабатывается."
+
+    print(f'Пользователь {user_id} сказал "{message}" → intent={intent}\n{answer}')
+
+    vk_bot.post(
+        "/api/v1/send-message",
+        {"type": "message", "user_id": user_id, "message": answer},
     )
-    job_id = created.get("job_id") if created else None
-    logger.info(f"Notification scheduled: job_id={job_id} user_id={user_id} at={notify_at.isoformat()}")
-    return {"job_id": job_id, "notify_at": notify_at.isoformat()}
+    return {"intent": intent, "answer": answer}
 
 
 engine = make_engine()
 server = ApiServer(session_factory=make_session_factory(engine), title="Backend API")
-server.add_route("/api/v1/get-message", schedule_reminder)
+server.add_route("/api/v1/get-message", handle_message)
 app = server.app
 
 

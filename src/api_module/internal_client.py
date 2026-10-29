@@ -28,9 +28,14 @@ def is_retryable_error(exception: Exception) -> bool:
 
 
 class InternalClient:
+    """
+    Синхронный клиент для запросов между сервисами.
+    Вызывается прямо из обработчиков ApiServer, которые FastAPI выполняет в пуле потоков.
+    """
+
     def __init__(self, base_url: str):
-        # Пул соединений
-        self.client = httpx.AsyncClient(base_url=base_url, timeout=10.0)
+        # Пул соединений; httpx.Client потокобезопасен, один экземпляр на все обработчики
+        self.client = httpx.Client(base_url=base_url, timeout=10.0)
 
     @retry(
         stop=stop_after_attempt(3),
@@ -38,14 +43,14 @@ class InternalClient:
         retry=retry_if_exception(is_retryable_error),
         reraise=True  # Если все 3 попытки провалились, пробрасываем последнее исключение
     )
-    async def _post_with_retry(self, endpoint: str, payload: dict, request_id: str):
+    def _post_with_retry(self, endpoint: str, payload: dict, request_id: str):
         # request_id передается снаружи, чтобы он был одинаковым для всех ретраев
         headers = {
             "Content-Type": "application/json",
             "X-Request-ID": request_id
         }
 
-        response = await self.client.post(endpoint, json=payload, headers=headers)
+        response = self.client.post(endpoint, json=payload, headers=headers)
 
         # Обработка 5xx: выбрасываем ошибку, которая разрешена для ретрая
         if response.status_code >= 500:
@@ -60,7 +65,7 @@ class InternalClient:
 
         return response.json()
 
-    async def post(self, endpoint: str, payload: dict):
+    def post(self, endpoint: str, payload: dict):
         # Генерируем ID ОДИН РАЗ до вызова ретрая
         request_id = str(uuid.uuid4())
 
@@ -68,7 +73,7 @@ class InternalClient:
         logger.info(f"Starting request {request_id} to {endpoint}")
 
         try:
-            return await self._post_with_retry(endpoint, payload, request_id)
+            return self._post_with_retry(endpoint, payload, request_id)
         except Exception as e:
             logger.error(f"Request {request_id} failed completely: {e}")
             raise

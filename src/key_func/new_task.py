@@ -81,4 +81,4 @@ def create_task(information: dict, user_id: int, session: Session):
         is_notified=False
     )
     # По часовому поясу юзера
-    return format_new_task(information, task, datetime.now(tz).date())
+    return format_new_task(information, task, tz)
