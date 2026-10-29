@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from datetime import time as TimeValue
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from src.choose import division
+from src.key_func.new_task import create_task
 from src.services.llm import get_reminder_answer_gigachat, parse_json_answer
 from src.services.notifier import schedule_notification
 
@@ -78,7 +78,7 @@ class ClarifyDateNotifyState(State):
         information = {**self.information, "date_notify": date_notify.isoformat() if date_notify else None}
         # Задача сохраняется в БД в любом случае; без напоминания, если date_notify = None
         try:
-            answer = division(information, ctx.user_id, ctx.session)
+            answer = create_task(information, ctx.user_id, ctx.session)
         except Exception:
             # Иначе каждый следующий ответ снова упадёт на тех же данных и пользователь застрянет
             self.transition_to(ctx, idle.IdleState())
