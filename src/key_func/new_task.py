@@ -46,10 +46,11 @@ def create_task(information: dict, user_id: int, session: Session):
     raw_text = information["raw_text"]
     event_type = EventType(information["type"])
 
+    # Дата не названа — задача на сегодня по часовому поясу пользователя (в tasks.date NOT NULL)
     date = (
         DateValue.fromisoformat(information["date"])
         if information.get("date")
-        else None
+        else datetime.now(tz).date()
     )
 
     time = (
@@ -58,12 +59,18 @@ def create_task(information: dict, user_id: int, session: Session):
         else None
     )
 
-    # Явный срок из сообщения пользователя важнее правила по умолчанию
-    date_notify = (
-        datetime.fromisoformat(information["date_notify"]).replace(tzinfo=tz)
-        if information.get("date_notify")
-        else default_date_notify(date, time, tz)
-    )
+    # Явный срок важнее правила по умолчанию. Явный null — пользователь отказался от напоминания.
+    # Время без часового пояса считается местным временем пользователя
+    if "date_notify" in information:
+        date_notify = (
+            datetime.fromisoformat(information["date_notify"])
+            if information["date_notify"]
+            else None
+        )
+        if date_notify is not None and date_notify.tzinfo is None:
+            date_notify = date_notify.replace(tzinfo=tz)
+    else:
+        date_notify = default_date_notify(date, time, tz)
 
     vector_raw_text = list(vector(raw_text))
 

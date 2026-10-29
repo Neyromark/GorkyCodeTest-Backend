@@ -35,6 +35,14 @@ class UserRepository:
         self._session.flush()
         return user
 
+    def get_or_create(self, user_id: int) -> User:
+        """Пользователь из БД; при первом обращении заводится с часовым поясом по умолчанию."""
+        user = self.get(user_id)
+        if user is None:
+            # TODO: бот не присылает имя пользователя — брать его из VK API (users.get)
+            user = self.create(user_id=user_id, username=f"id{user_id}")
+        return user
+
 
 class TaskRepository:
     """Операции с событиями, включая поиск похожих заголовков по вектору."""
