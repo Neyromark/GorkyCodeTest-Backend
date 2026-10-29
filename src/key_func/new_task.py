@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from src.database.models import EventType
 from src.database.repositories import UserRepository, TaskRepository
+from src.key_func.formats import format_new_task
 from src.vectorization import vector
 
 # Правило по умолчанию: за 15 минут до события, а для дел без времени — в 9:00 дня события
@@ -79,5 +80,5 @@ def create_task(information: dict, user_id: int, session: Session):
         time=time,
         is_notified=False
     )
-
-    return task
+    # По часовому поясу юзера
+    return format_new_task(information, task, datetime.now(tz).date())

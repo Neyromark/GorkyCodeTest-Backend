@@ -2,7 +2,8 @@
 
 from collections.abc import Sequence
 from datetime import date as DateValue
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from src.database.models import EventType, Task
 from src.services.llm import get_search_answer_gigachat
@@ -88,3 +89,33 @@ def format_all_tasks(information: dict, tasks: Sequence[Task], today: DateValue)
         sections.append("\n".join(lines))
 
     return "\n\n".join([HEADERS[event_type], *sections])
+
+
+def to_user_time(value: datetime, tz: ZoneInfo) -> datetime:
+    """Переводит момент (из БД — в UTC) в часовой пояс пользователя; время без пояса считается UTC."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(tz)
+
+
+def format_new_task(information: dict, task: Task, tz: ZoneInfo) -> str:
+    today = datetime.now(tz).date()
+    day = format_day(task.date, today) if task.date is not None else None
+    clock = task.time.strftime("%H:%M") if task.time is not None else None
+
+    if EventType(information["type"]) == EventType.MEETING:
+        parts = [f"💼  {task.title} запланирована"]
+        if day:
+            parts.append(day)
+        if clock:
+            parts.append(f"в {clock}")
+        text = " ".join(parts) + "."
+    else:
+        text = f'✅  Задача "{task.title}" запланирована'
+        when = ", ".join(part for part in (day, clock) if part)
+        text = f"{text} на {when}." if when else f"{text}."
+
+    if task.date_notify is not None:
+        notify = to_user_time(task.date_notify, tz)
+        text += f" Напоминание придёт {format_day(notify.date(), today)} в {notify:%H:%M}."
+    return text
