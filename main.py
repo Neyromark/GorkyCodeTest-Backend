@@ -6,8 +6,10 @@ from anyio.from_thread import run as run_in_event_loop
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from src.database.connection import make_engine, make_session_factory
 from src.api_module import ApiServer, InternalClient
 from src.config import vk_bot_url
+from src.services import llm
 
 logging.basicConfig(level=logging.INFO)
 
@@ -26,19 +28,24 @@ def echo_message(payload: dict[str, Any], session: Session | None) -> dict[str, 
         raise HTTPException(status_code=422, detail="Нужны поля user_id (int) и message")
 
     print(f'Пользователь {user_id} сказал "{message}"')
+    print("UPDATED")
 
     # Обработчик выполняется в пуле потоков, а InternalClient асинхронный:
     # отправляем запрос через event loop, в котором работает uvicorn
+
+    # Edit: теперь пробуем ответить с помощью гигачат.
+    answer = llm.ask_gigachat("Ответь пользователю, который тебе говорит: " + '"' + message + '"')
     reply = run_in_event_loop(
         vk_bot.post,
         "/api/v1/send-message",
-        {"type": "message", "user_id": user_id, "message": message},
+        {"type": "message", "user_id": user_id, "message": answer},
     )
     return {"replied": reply is not None and reply.get("status") in ("done", "already_done")}
 
 
 # Сэмпл работает без БД: ApiServer не отмечает запросы в done_tasks
-server = ApiServer(title="Backend API")
+engine = make_engine()
+server = ApiServer(session_factory=make_session_factory(engine), title="Backend API")
 server.add_route("/api/v1/get-message", echo_message)
 app = server.app
 
