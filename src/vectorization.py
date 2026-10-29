@@ -1,9 +1,12 @@
+import os
+
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.util import normalize_embeddings
 import numpy as np
 
+# В Docker имя задаёт Dockerfile (там же модель скачивается в образ)
 _model = SentenceTransformer(
-    'sentence-transformers/paraphrase-multilingual-mpnet-base-v2',
+    os.getenv("EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"),
     device='cpu'
 )
 
