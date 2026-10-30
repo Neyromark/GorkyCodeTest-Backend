@@ -29,6 +29,18 @@ SECTION_TITLES = {
     EventType.MEETING: "Встречи 💼:",
 }
 
+SCOPE_HEADERS = {
+    EventType.TASK: "Задачи:",
+    EventType.MEETING: "Встречи:",
+}
+
+WEEKDAYS_NOMINATIVE = (
+    "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье",
+)
+
+# template_clarify работает в урезанном скоупе: не больше 10 записей — по 5 в каждом типе
+CLARIFY_LIMIT_PER_TYPE = 5
+
 
 def format_search_answer(query: str, tasks: Sequence[Task]) -> str:
     """
@@ -62,6 +74,50 @@ def format_day(value: DateValue, today: DateValue) -> str:
 
     day = f"{value.day} {MONTHS_GENITIVE[value.month - 1]}"
     return day if value.year == today.year else f"{day} {value.year}"
+
+
+def format_scope_line(number: int, task: Task) -> str:
+    """
+    Строка кандидата для template_clarify: день недели и абсолютная дата,
+    чтобы ловить и «в пятницу», и «6 ноября», и «2026-11-06».
+    """
+    when = (
+        f"{WEEKDAYS_NOMINATIVE[task.date.weekday()]} {task.date.day} "
+        f"{MONTHS_GENITIVE[task.date.month - 1]} {task.date.year}"
+    )
+    if task.time is not None:
+        when += f" {task.time.strftime('%H:%M')}"
+    return f"{number}. {task.title}, {when}."
+
+
+def format_clarify_scope(tasks: Sequence[Task]) -> tuple[str, list[Task]]:
+    """
+    Единственная строка кандидатов для промпта template_clarify:
+    не больше 5 задач и 5 встреч, сквозная нумерация от задач к встречам.
+    Возвращает строку и записи в её нумерации — состав и порядок совпадают,
+    поэтому номер из ответа LLM указывает на ту же запись в списке.
+    """
+    limited = {
+        event_type: [task for task in tasks if task.type == event_type][:CLARIFY_LIMIT_PER_TYPE]
+        for event_type in (EventType.TASK, EventType.MEETING)
+    }
+    scope_tasks = [*limited[EventType.TASK], *limited[EventType.MEETING]]
+    if not scope_tasks:
+        return "", []
+
+    sections = []
+    number = 1
+    for event_type in (EventType.TASK, EventType.MEETING):
+        typed_tasks = limited[event_type]
+        if not typed_tasks:
+            continue
+        lines = [SCOPE_HEADERS[event_type]]
+        for task in typed_tasks:
+            lines.append(format_scope_line(number, task))
+            number += 1
+        sections.append("\n".join(lines))
+
+    return "\n\n".join(sections), scope_tasks
 
 
 def format_task_line(number: int, task: Task, today: DateValue) -> str:
