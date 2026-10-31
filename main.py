@@ -83,21 +83,14 @@ def check_user(payload: dict[str, Any], session: Session | None) -> dict[str, An
         raise HTTPException(status_code=422, detail="Ожидался type='check_user'")
 
     user_id = payload.get("user_id")
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
+        raise HTTPException(status_code=422, detail="Нужен user_id (положительный int)")
 
-    if isinstance(user_id, bool) or not isinstance(user_id, int):
-        raise HTTPException(status_code=422, detail="Нужен user_id (int)")
+    if session is None:
+        raise HTTPException(status_code=503, detail="Проверка недоступна: нет подключения к БД")
 
-    users = UserRepository(session)
-    user = users.get(user_id)
-
-    if user is None:
-        return {
-            "status": "BAD"
-        }
-    else:
-        return {
-            "status": "OK"
-        }
+    user = UserRepository(session).get(user_id)
+    return {"status": "OK" if user is not None else "BAD"}
 
 
 engine = make_engine()
