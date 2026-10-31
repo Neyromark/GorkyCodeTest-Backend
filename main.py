@@ -78,11 +78,26 @@ def registration(payload: dict[str, Any], session: Session | None) -> dict[str, 
         "created": created,
     }
 
+def check_user(payload: dict[str, Any], session: Session | None) -> dict[str, Any]:
+    if payload.get("type") != "check_user":
+        raise HTTPException(status_code=422, detail="Ожидался type='check_user'")
+
+    user_id = payload.get("user_id")
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
+        raise HTTPException(status_code=422, detail="Нужен user_id (положительный int)")
+
+    if session is None:
+        raise HTTPException(status_code=503, detail="Проверка недоступна: нет подключения к БД")
+
+    user = UserRepository(session).get(user_id)
+    return {"status": "OK" if user is not None else "BAD"}
+
 
 engine = make_engine()
 server = ApiServer(session_factory=make_session_factory(engine), title="Backend API")
 server.add_route("/api/v1/get-message", handle_message)
 server.add_route("/api/v1/registration", registration)
+server.add_route("/api/v1/check-user", check_user)
 app = server.app
 
 
