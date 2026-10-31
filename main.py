@@ -1,6 +1,6 @@
 import logging
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import uvicorn
 from fastapi import HTTPException
@@ -39,9 +39,50 @@ def handle_message(payload: dict[str, Any], session: Session | None) -> dict[str
     return {"state": state.name, "answer": state.message()}
 
 
+def registration(payload: dict[str, Any], session: Session | None) -> dict[str, Any]:
+    """Регистрация пользователя: создаёт запись или обновляет имя и часовой пояс."""
+    if payload.get("type") != "registration":
+        raise HTTPException(status_code=422, detail="Ожидался type='registration'")
+
+    user_id = payload.get("user_id")
+    user_name = payload.get("user_name")
+    user_timezone = payload.get("user_timezone")
+    if isinstance(user_id, bool) or not isinstance(user_id, int):
+        raise HTTPException(status_code=422, detail="Нужен user_id (int)")
+    if not isinstance(user_name, str) or not user_name.strip():
+        raise HTTPException(status_code=422, detail="Нужен user_name (непустая строка)")
+    if not isinstance(user_timezone, str) or not user_timezone:
+        raise HTTPException(status_code=422, detail="Нужен user_timezone (IANA, например Asia/Novosibirsk)")
+    try:
+        ZoneInfo(user_timezone)
+    except (ValueError, ZoneInfoNotFoundError, KeyError):
+        raise HTTPException(status_code=422, detail=f"Неизвестный часовой пояс: {user_timezone}")
+
+    if session is None:
+        raise HTTPException(status_code=503, detail="Регистрация недоступна: нет подключения к БД")
+
+    users = UserRepository(session)
+    user = users.get(user_id)
+    created = user is None
+    if created:
+        user = users.create(user_id=user_id, username=user_name, timezone=user_timezone)
+    else:
+        user.username = user_name
+        user.timezone = user_timezone
+        session.flush()
+
+    return {
+        "user_id": user.user_id,
+        "username": user.username,
+        "timezone": user.timezone,
+        "created": created,
+    }
+
+
 engine = make_engine()
 server = ApiServer(session_factory=make_session_factory(engine), title="Backend API")
 server.add_route("/api/v1/get-message", handle_message)
+server.add_route("/api/v1/registration", registration)
 app = server.app
 
 

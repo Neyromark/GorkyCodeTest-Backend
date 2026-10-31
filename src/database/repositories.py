@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date as DateValue
 from datetime import datetime, time as TimeValue
+from time import time
 from uuid import UUID
 
 from sqlalchemy import func, or_, select, tuple_
@@ -31,19 +32,21 @@ class UserRepository:
         *,
         user_id: int,
         username: str,
-        timezone: str = "Europe/Moscow",
+        timezone: str | None = None,
     ) -> User:
+        timezone = timezone if timezone else "Europe/Moscow"
         user = User(user_id=user_id, username=username, timezone=timezone)
         self._session.add(user)
         self._session.flush()
         return user
 
-    def get_or_create(self, user_id: int) -> User:
+    def get_or_create(self, user_id: int, username: str  | None = None, timezone: str | None = None) -> User:
         """Пользователь из БД; при первом обращении заводится с часовым поясом по умолчанию."""
         user = self.get(user_id)
+        username = username if username else f"id{user_id}"
         if user is None:
             # TODO: бот не присылает имя пользователя — брать его из VK API (users.get)
-            user = self.create(user_id=user_id, username=f"id{user_id}")
+            user = self.create(user_id=user_id, username=username, timezone=timezone)
         return user
 
 
