@@ -8,6 +8,7 @@ from gigachat.models import Chat, Messages, MessagesRole
 from src.config import credential
 from src.prompt_templates.template import get_prompt
 from src.prompt_templates.template_clarify import get_clarify_prompt
+from src.prompt_templates.template_confirm import get_confirm_prompt
 from src.prompt_templates.template_reminder import get_reminder_time
 from src.prompt_templates.template_search import get_search_answer_prompt
 
@@ -59,6 +60,11 @@ def get_clarify_answer_gigachat(
     return ask_gigachat(get_clarify_prompt(scope_text, question, utc_offset), max_tokens=100)
 
 
+def get_confirm_answer_gigachat(question: str, user_text: str) -> str:
+    """JSON {"confirm": true|false} — подтвердил ли пользователь удаление или изменение."""
+    return ask_gigachat(get_confirm_prompt(question, user_text), max_tokens=10)
+
+
 def parse_json_answer(llm_answer: str) -> dict[str, Any]:
     """JSON-объект из ответа LLM; обрамление ```json ... ``` срезается, если модель его всё же добавила."""
     text = llm_answer.strip()
@@ -86,3 +92,11 @@ def parse_suitable_answer(llm_answer: str, scope_size: int) -> list[int]:
         if value not in numbers:
             numbers.append(value)
     return sorted(numbers)
+
+
+def parse_confirm_answer(llm_answer: str) -> bool:
+    """Подтверждение из ответа template_confirm; всё кроме явного true — отказ."""
+    confirm = parse_json_answer(llm_answer).get("confirm")
+    if not isinstance(confirm, bool):
+        raise ValueError(f"Ожидался булевый confirm, получено: {llm_answer!r}")
+    return confirm

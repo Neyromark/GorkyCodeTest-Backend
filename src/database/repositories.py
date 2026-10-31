@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date as DateValue
 from datetime import datetime, time as TimeValue
+from time import time
 from uuid import UUID
 
 from sqlalchemy import func, or_, select, tuple_
@@ -12,6 +13,9 @@ from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
 from .models import DoneTask, EventType, Task, User
+
+# Значение «поле не передано» — отличить от None, который означает «очистить»
+UNSET = object()
 
 
 class UserRepository:
@@ -28,19 +32,21 @@ class UserRepository:
         *,
         user_id: int,
         username: str,
-        timezone: str = "Europe/Moscow",
+        timezone: str | None = None,
     ) -> User:
+        timezone = timezone if timezone else "Europe/Moscow"
         user = User(user_id=user_id, username=username, timezone=timezone)
         self._session.add(user)
         self._session.flush()
         return user
 
-    def get_or_create(self, user_id: int) -> User:
+    def get_or_create(self, user_id: int, username: str  | None = None, timezone: str | None = None) -> User:
         """Пользователь из БД; при первом обращении заводится с часовым поясом по умолчанию."""
         user = self.get(user_id)
+        username = username if username else f"id{user_id}"
         if user is None:
             # TODO: бот не присылает имя пользователя — брать его из VK API (users.get)
-            user = self.create(user_id=user_id, username=f"id{user_id}")
+            user = self.create(user_id=user_id, username=username, timezone=timezone)
         return user
 
 
@@ -75,6 +81,31 @@ class TaskRepository:
             is_notified=is_notified,
         )
         self._session.add(task)
+        self._session.flush()
+        return task
+
+    def delete(self, task: Task) -> None:
+        """Удалить запись.
+
+        Напоминание в Notifications отменить нельзя — API отмены там нет,
+        поэтому уже поставленное напоминание сработает независимо от этой операции.
+        """
+        self._session.delete(task)
+        self._session.flush()
+
+    def update(self, task: Task, *, title=UNSET, date=UNSET, time=UNSET,
+               date_notify=UNSET, title_vector=UNSET, is_notified=UNSET) -> Task:
+        """Изменить переданные поля записи; не переданные поля (UNSET) не трогаем."""
+        for name, value in (
+            ("title", title),
+            ("date", date),
+            ("time", time),
+            ("date_notify", date_notify),
+            ("title_vector", title_vector),
+            ("is_notified", is_notified),
+        ):
+            if value is not UNSET:
+                setattr(task, name, value)
         self._session.flush()
         return task
 

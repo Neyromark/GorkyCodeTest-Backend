@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from datetime import date as DateValue
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from src.database.models import EventType, Task
@@ -61,36 +61,57 @@ def format_search_answer(query: str, tasks: Sequence[Task]) -> str:
     return get_search_answer_gigachat(query, "\n".join(lines))
 
 
+# Относительные названия дней: смещение от текущей даты в днях -> слово
+RELATIVE_DAY_OFFSETS = {
+    -2: "позавчера",
+    -1: "вчера",
+    0: "сегодня",
+    1: "завтра",
+    2: "послезавтра",
+}
+
+
 def format_day(value: DateValue, today: DateValue) -> str:
-    relative = {
-        today - timedelta(days=1): "вчера",
-        today: "сегодня",
-        today + timedelta(days=1): "завтра",
-        today - timedelta(days=2): "позавчера",
-        today + timedelta(days=2): "послезавтра",
-    }
-    if value in relative:
-        return relative[value]
+    relative = RELATIVE_DAY_OFFSETS.get((value - today).days)
+    if relative is not None:
+        return relative
 
     day = f"{value.day} {MONTHS_GENITIVE[value.month - 1]}"
     return day if value.year == today.year else f"{day} {value.year}"
 
 
-def format_scope_line(number: int, task: Task) -> str:
-    """
-    Строка кандидата для template_clarify: день недели и абсолютная дата,
-    чтобы ловить и «в пятницу», и «6 ноября», и «2026-11-06».
-    """
-    when = (
-        f"{WEEKDAYS_NOMINATIVE[task.date.weekday()]} {task.date.day} "
-        f"{MONTHS_GENITIVE[task.date.month - 1]} {task.date.year}"
+def format_abs_date(value: DateValue) -> str:
+    """Абсолютная дата с днём недели: «понедельник 2 ноября 2026»."""
+    return (
+        f"{WEEKDAYS_NOMINATIVE[value.weekday()]} {value.day} "
+        f"{MONTHS_GENITIVE[value.month - 1]} {value.year}"
     )
+
+
+def format_when(value: DateValue, today: DateValue) -> str:
+    """
+    Дата записи для сообщений бота: ближайшие дни — слово из format_day
+    рядом с абсолютной датой («завтра, воскресенье 1 ноября 2026»),
+    остальные — только абсолютная дата.
+    """
+    if (value - today).days in RELATIVE_DAY_OFFSETS:
+        return f"{format_day(value, today)}, {format_abs_date(value)}"
+    return format_abs_date(value)
+
+
+def format_scope_line(number: int, task: Task, today: DateValue) -> str:
+    """
+    Строка кандидата для template_clarify: день недели и дата, а для ближайших
+    дней ещё и относительное слово — чтобы ловить и «в пятницу», и «завтра»,
+    и «6 ноября», и «2026-11-06».
+    """
+    when = format_when(task.date, today)
     if task.time is not None:
         when += f" {task.time.strftime('%H:%M')}"
     return f"{number}. {task.title}, {when}."
 
 
-def format_clarify_scope(tasks: Sequence[Task]) -> tuple[str, list[Task]]:
+def format_clarify_scope(tasks: Sequence[Task], today: DateValue) -> tuple[str, list[Task]]:
     """
     Единственная строка кандидатов для промпта template_clarify:
     не больше 5 задач и 5 встреч, сквозная нумерация от задач к встречам.
@@ -113,7 +134,7 @@ def format_clarify_scope(tasks: Sequence[Task]) -> tuple[str, list[Task]]:
             continue
         lines = [SCOPE_HEADERS[event_type]]
         for task in typed_tasks:
-            lines.append(format_scope_line(number, task))
+            lines.append(format_scope_line(number, task, today))
             number += 1
         sections.append("\n".join(lines))
 
@@ -145,6 +166,34 @@ def format_all_tasks(information: dict, tasks: Sequence[Task], today: DateValue)
         sections.append("\n".join(lines))
 
     return "\n\n".join([HEADERS[event_type], *sections])
+
+
+def format_task_brief(task: Task, today: DateValue) -> str:
+    """Одна запись для сообщений бота: «название» — тип, завтра, воскресенье 1 ноября 2026, 18:00."""
+    kind = "встреча" if task.type == EventType.MEETING else "задача"
+    when = format_when(task.date, today)
+    when += f", {task.time.strftime('%H:%M')}" if task.time is not None else ", время не указано"
+    return f"«{task.title}» — {kind}, {when}"
+
+
+def format_pending_changes(information: dict, today: DateValue) -> str:
+    """Что именно будет изменено — по new_* полям из шаблона template."""
+    parts = []
+    if information.get("new_title"):
+        parts.append(f"название: «{information['new_title']}»")
+    if information.get("new_date"):
+        parts.append(f"дата: {format_when(DateValue.fromisoformat(information['new_date']), today)}")
+    if information.get("new_time"):
+        parts.append(f"время: {information['new_time']}")
+    return ", ".join(parts)
+
+
+def format_deleted_task(task: Task, today: DateValue) -> str:
+    return f"Запись удалена: {format_task_brief(task, today)}."
+
+
+def format_changed_task(task: Task, today: DateValue) -> str:
+    return f"Запись изменена: {format_task_brief(task, today)}."
 
 
 def to_user_time(value: datetime, tz: ZoneInfo) -> datetime:

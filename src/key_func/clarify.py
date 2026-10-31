@@ -1,6 +1,7 @@
 """Сужение скоупа: отбор записей по уточнению пользователя (template_clarify)."""
 
 from collections.abc import Sequence
+from datetime import date as DateValue
 from datetime import timedelta
 
 from src.database.models import Task
@@ -11,6 +12,7 @@ from src.services.llm import get_clarify_answer_gigachat, parse_suitable_answer
 def select_suitable_tasks(
     candidates: Sequence[Task],
     question: str,
+    today: DateValue,
     utc_offset: int | float | timedelta = 3,
 ) -> list[Task]:
     """
@@ -19,8 +21,11 @@ def select_suitable_tasks(
     несколько записей. Кандидаты сокращаются до скоупа из template_clarify
     (не более 5 задач и 5 встреч), поэтому в результат попадают только записи,
     реально показанные пользователю.
+
+    today — текущая дата пользователя: она нужна скоупу для относительных
+    дней («завтра»), поэтому должна быть той же, что и при показе списка.
     """
-    scope_text, scope_tasks = format_clarify_scope(candidates)
+    scope_text, scope_tasks = format_clarify_scope(candidates, today)
     if not scope_tasks:
         return []
 
