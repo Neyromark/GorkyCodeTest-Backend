@@ -12,12 +12,15 @@ from src.vectorization import vector
 # Кандидатов берём с запасом: format_clarify_scope режет список по типам
 # (до 5 задач и до 5 встреч), поэтому из двадцати набираются оба блока
 CANDIDATES_LIMIT = 20
+# Записи с меньшим косинусным сходством не считаем подходящими под описание
+MIN_SIMILARITY = 0.4
 
 
 def find_candidates(information: dict, user_id: int, session: Session) -> list[Task]:
     """
     Записи пользователя, подходящие под описание из delete_task/change_task:
-    фильтр по типу и дате из запроса, затем ближайшие по смыслу заголовки.
+    фильтр по типу и дате из запроса, затем ближайшие по смыслу заголовки
+    с косинусным сходством не ниже MIN_SIMILARITY, не больше CANDIDATES_LIMIT.
 
     Время в запросе не фильтрует — пользователь может неточно вспомнить
     час встречи, а скоуп всё равно уточняется отдельным вопросом.
@@ -54,6 +57,7 @@ def find_candidates(information: dict, user_id: int, session: Session) -> list[T
         embedding=query_embedding,
         task_ids=[task.task_id for task in candidates],
         limit=CANDIDATES_LIMIT,
+        min_similarity=MIN_SIMILARITY,
     )
 
 
@@ -82,3 +86,4 @@ def apply_changes(task: Task, information: dict, session: Session) -> Task:
         changes["time"] = TimeValue.fromisoformat(information["new_time"])
 
     return TaskRepository(session).update(task, **changes)
+
