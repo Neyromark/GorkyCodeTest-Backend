@@ -175,8 +175,11 @@ class TaskRepository:
         task_ids: Sequence[int],
         *,
         limit: int = 5,
+        min_similarity: float | None = None,
     ) -> list[Task]:
         """Вернуть ближайшие заголовки пользователя по cosine distance.
+
+        min_similarity — нижний порог косинусного сходства; None — без порога.
         """
 
         if limit < 1:
@@ -203,6 +206,9 @@ class TaskRepository:
             .order_by(distance + 0)
             .limit(limit)
         )
+        if min_similarity is not None:
+            # cosine distance = 1 - косинусное сходство
+            statement = statement.where(distance <= 1 - min_similarity)
         return list(self._session.scalars(statement).all())
 
 
@@ -236,3 +242,4 @@ class DoneTaskRepository:
             .returning(DoneTask.query_id)
         )
         return self._session.execute(statement).scalar() is not None
+

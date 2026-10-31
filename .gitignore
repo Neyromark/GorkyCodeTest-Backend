@@ -6,3 +6,4 @@ venv/
 uv.lock
 pyproject.toml
 .idea/
+.DS_Store
