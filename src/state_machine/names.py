@@ -4,3 +4,9 @@
 IDLE = "IDLE"
 # Задача распознана, бот спросил время напоминания
 CLARIFY_DATE_NOTIFY = "CLARIFY_DATE_NOTIFY"
+# Под описание подошло несколько записей, пользователь уточняет, какая из них
+CLARIFY_SCOPE = "CLARIFY_SCOPE"
+# Запись показана, ждём подтверждения удаления или изменения
+CONFIRM_ACTION = "CONFIRM_ACTION"
+# Изменение подтверждено, бот спросил новое время напоминания
+CLARIFY_CHANGE_NOTIFY = "CLARIFY_CHANGE_NOTIFY"

@@ -13,6 +13,9 @@ from sqlalchemy.orm import Session
 
 from .models import DoneTask, EventType, Task, User
 
+# Значение «поле не передано» — отличить от None, который означает «очистить»
+UNSET = object()
+
 
 class UserRepository:
     """Операции чтения и добавления пользователей."""
@@ -75,6 +78,31 @@ class TaskRepository:
             is_notified=is_notified,
         )
         self._session.add(task)
+        self._session.flush()
+        return task
+
+    def delete(self, task: Task) -> None:
+        """Удалить запись.
+
+        Напоминание в Notifications отменить нельзя — API отмены там нет,
+        поэтому уже поставленное напоминание сработает независимо от этой операции.
+        """
+        self._session.delete(task)
+        self._session.flush()
+
+    def update(self, task: Task, *, title=UNSET, date=UNSET, time=UNSET,
+               date_notify=UNSET, title_vector=UNSET, is_notified=UNSET) -> Task:
+        """Изменить переданные поля записи; не переданные поля (UNSET) не трогаем."""
+        for name, value in (
+            ("title", title),
+            ("date", date),
+            ("time", time),
+            ("date_notify", date_notify),
+            ("title_vector", title_vector),
+            ("is_notified", is_notified),
+        ):
+            if value is not UNSET:
+                setattr(task, name, value)
         self._session.flush()
         return task
 

@@ -100,14 +100,18 @@ src/
 ├── api_module/               ApiServer (роутинг, X-Request-ID, done_tasks)
 │   └── internal_client.py    HTTP-клиент к другим сервисам с ретраями
 ├── state_machine/            автомат диалога
-│   ├── names.py              IDLE, CLARIFY_DATE_NOTIFY
+│   ├── names.py              IDLE, CLARIFY_DATE_NOTIFY, CLARIFY_SCOPE,
+│   │                         CONFIRM_ACTION, CLARIFY_CHANGE_NOTIFY
 │   ├── transitions.py        таблица разрешённых переходов
 │   ├── machine.py            хранение состояний пользователей
 │   ├── context.py            DialogContext: пользователь, сессия БД, часовой пояс
-│   └── possible_state/       IdleState, ClarifyDateNotifyState
-├── key_func/                 create_task / show_all_tasks / search_tasks / select_suitable_tasks и форматирование
+│   └── possible_state/       IdleState, ClarifyDateNotifyState, ClarifyScopeState,
+│                             ConfirmActionState, ClarifyChangeNotifyState
+├── key_func/                 create_task / show_all_tasks / search_tasks / change_delete /
+│                             select_suitable_tasks и форматирование
 ├── services/                 GigaChat (llm.py) и постановка напоминаний (notifier.py)
-├── prompt_templates/         промпты: разбор сообщения, время напоминания, ответ по поиску, уточнение скоупа
+├── prompt_templates/         промпты: разбор сообщения, время напоминания, ответ по поиску,
+│                             уточнение скоупа, подтверждение действия
 ├── database/                 модели SQLAlchemy, репозитории, engine и сессии
 └── vectorization.py          эмбеддинги заголовков (768 измерений)
 ```
@@ -119,6 +123,14 @@ IDLE ──create_task──▶ CLARIFY_DATE_NOTIFY ──сохранено / �
   ▲                            │
   └──────list_events, search_history, неизвестное намерение─────┘
                                └──не удалось разобрать ответ───▶ CLARIFY_DATE_NOTIFY (retry)
+
+IDLE ──delete_task / change_task, один кандидат──▶ CONFIRM_ACTION ──удалено / отказ──▶ IDLE
+  │                                │
+  │                                └──«да», изменение──▶ CLARIFY_CHANGE_NOTIFY ──сохранено──▶ IDLE
+  ├── несколько кандидатов ──▶ CLARIFY_SCOPE ──одна запись──▶ CONFIRM_ACTION
+  │                                │
+  │                                └──уточнение не помогло──▶ CLARIFY_SCOPE (retry)
+  └── кандидатов нет ──▶ IDLE («не нашлось подходящих записей»)
 ```
 
 * Пользователь без записи считается находящимся в `IDLE`.
@@ -161,16 +173,42 @@ IDLE ──create_task──▶ CLARIFY_DATE_NOTIFY ──сохранено / �
 (`formats.format_clarify_scope`):
 
 1. Скоуп собирается в одну строку с блоками «Задачи:» и «Встречи:»,
-   каждая строка — номер, название, день недели, дата и время.
+   каждая строка — номер, название, день недели, дата и время, а для ближайших
+   дней ещё и относительное слово из `formats.format_day` —
+   «завтра, воскресенье 1 ноября 2026».
 2. `template_clarify.get_clarify_prompt` подставляет скоуп и уточнение
    пользователя и просит JSON `{"suitable": [1, 4, 9]}` с номерами подходящих
-   записей.
+   записей. День недели в уточнении («в воскресенье») — жёсткое ограничение:
+   запись подходит, только если её дата выпадает на этот день недели.
 3. `llm.parse_suitable_answer` проверяет номера (целые, в пределах скоупа,
    без повторов), `clarify.select_suitable_tasks` возвращает сами записи
    в нумерации скоупа. Пустой массив — ни одна запись не подошла.
 
 Вызывающая сторона (удаление/изменение) получает только те записи,
 которые реально показывались пользователю, и не может выйти за скоуп.
+
+### Удаление и изменение записей
+
+1. `IdleState` распознаёт `delete_task` и `change_task` по промпту `template`.
+   Для `change_task` JSON содержит и текущие поля записи (`title`, `date`,
+   `time` — по ним ищем), и новые (`new_title`, `new_date`, `new_time` —
+   `null` означает «не менять»).
+2. `change_delete.find_candidates` отбирает записи: фильтр по типу и дате
+   из запроса, затем до 20 ближайших по смыслу заголовков.
+3. Ни одной записи — ответ «не нашлось»; ровно одна — сразу подтверждение;
+   несколько — `CLARIFY_SCOPE` показывает скоуп и сузит его через
+   `template_clarify`, пока не останется одна запись.
+4. `CONFIRM_ACTION` показывает запись и то, что именно изменится, и спрашивает
+   «да/нет» (`template_confirm`). Отказ или неопределённый ответ — возврат в
+   `IDLE`, ничего не меняется.
+5. По подтверждению удаление выполняется сразу; изменение применяется
+   (`TaskRepository.update`), после чего `CLARIFY_CHANGE_NOTIFY` спрашивает
+   время напоминания — тем же вопросом, что и при создании задачи.
+
+Ограничения: уже поставленное напоминание в Notifications отменить нельзя —
+там нет API отмены, поэтому у удалённой или перенесённой записи старое
+напоминание всё равно сработает. Отмена появится вместе с API отмены в
+Notifications.
 
 ### Работа с БД
 
